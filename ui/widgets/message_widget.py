@@ -1,0 +1,727 @@
+# ============================================================================
+# Prométhée — Assistant IA desktop
+# ============================================================================
+# Auteur  : Pierre COUGET
+# Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+#           https://www.gnu.org/licenses/agpl-3.0.html
+# Année   : 2026
+# ----------------------------------------------------------------------------
+# Ce fichier fait partie du projet Prométhée.
+# Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+# licence AGPL-3.0 publiée par la Free Software Foundation.
+# ============================================================================
+
+"""
+message_widget.py — Widget de message (user/assistant)
+Rendu via QWebEngineView : Markdown + Pygments (code).
+
+Virtualisation mémoire
+──────────────────────
+Chaque MessageWidget peut exister dans deux états :
+
+  ACTIF    — QWebEngineView visible, renderer Chromium en vie.
+             Consommation : ~25-40 Mo RAM + un process GPU.
+
+  DÉTACHÉ  — QWebEngineView mis en état « Discarded » (lifecycle Qt 6.2+).
+             Le renderer est suspendu mais le widget Qt conserve sa hauteur
+             connue (_cached_height), donc le layout reste stable (pas de
+             saut visuel lors du re-scroll).
+             Consommation : ~1-2 Mo (structures Qt uniquement).
+
+La transition est pilotée par ViewportManager (chat_panel.py) :
+  - attach()  → appelé quand le widget entre dans la zone visible + buffer
+  - detach()  → appelé quand le widget sort de la zone visible + buffer
+
+Invariants
+──────────
+• Un widget en streaming (start_streaming en cours) n'est jamais détaché.
+• La hauteur conservée (_cached_height) garantit que le scroll reste
+  cohérent même quand le WebView est suspendu.
+• set_content() en état DÉTACHÉ met à jour _full_text et estime la hauteur
+  (_dirty=True), puis déclenche un re-render au prochain attach().
+"""
+import html
+import re
+from pathlib import Path
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QSizePolicy,
+)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QGuiApplication
+from .styles import ThemeManager
+from core.config import Config
+from .latex_renderer import (
+    is_available as latex_available,
+    katex_html_tags,
+    katex_css_extras,
+    protect_latex,
+    restore_latex,
+)
+
+try:
+    import markdown as md_lib
+    _HAS_MD = True
+except ImportError:
+    _HAS_MD = False
+
+try:
+    from pygments import highlight
+    from pygments.lexers import get_lexer_by_name, TextLexer
+    from pygments.formatters import HtmlFormatter
+    _HAS_PYGMENTS = True
+except ImportError:
+    _HAS_PYGMENTS = False
+
+# Paramètres d'estimation de hauteur hors-ligne (état détaché)
+_CHARS_PER_LINE  = 80   # ~80 caractères par ligne à la largeur nominale
+_PX_PER_LINE     = 24   # hauteur d'une ligne (14px font + line-height 1.7)
+_DETACHED_PADDING = 32  # marges verticales de la bulle
+
+# Cache du CSS HTML : une entrée par thème (True=dark, False=light).
+# Invalidé par invalidate_html_css_cache(), appelé depuis ThemeManager
+# lors de chaque changement de thème.
+_html_css_cache: dict[bool, str] = {}
+
+
+def invalidate_html_css_cache() -> None:
+    """Vide le cache CSS HTML. À appeler après chaque changement de thème."""
+    _html_css_cache.clear()
+
+
+# ── CSS HTML ──────────────────────────────────────────────────────────────────
+
+def _build_html_css() -> str:
+    dark = ThemeManager.is_dark()
+    if dark in _html_css_cache:
+        return _html_css_cache[dark]
+
+    p    = ThemeManager.inline  # alias court : p("token") → valeur active
+
+    pyg_style  = "one-dark" if dark else "friendly"
+    pyg_bg     = p("code_block_bg")
+    body_color = p("text_primary")
+    link_color = p("link_color")
+    code_color = p("code_inline_color")
+    code_bg    = p("code_bg")
+    code_bdr   = p("code_border")
+    bq_bg      = p("blockquote_bg")
+    bq_color   = p("text_muted")
+    h_color    = p("text_primary")
+    h_border   = p("border")
+    th_bg      = p("code_bg")
+    th_color   = p("text_secondary")
+    td_border  = p("code_bg")
+    tr_hover   = p("table_row_hover")
+    hr_color   = p("border")
+
+    pyg_css = HtmlFormatter(style=pyg_style).get_style_defs(".highlight") \
+              if _HAS_PYGMENTS else ""
+
+    latex_css = katex_css_extras() if latex_available() else ""
+
+    css = f"""
+* {{ box-sizing: border-box; }}
+html, body {{
+    margin: 0; padding: 0;
+    background: transparent;
+    color: {body_color};
+    font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: 15900px;
+}}
+p  {{ margin: 4px 0 8px; }}
+a  {{ color: {link_color}; }}
+
+h1 {{ color:{h_color}; font-size:18px; font-weight:700;
+     margin:14px 0 6px; border-bottom:1px solid {h_border}; padding-bottom:4px; }}
+h2 {{ color:{h_color}; font-size:16px; font-weight:600; margin:12px 0 5px; }}
+h3 {{ color:{h_color}; font-size:14px; font-weight:600; margin:10px 0 4px; }}
+
+ul, ol {{ margin:4px 0 8px; padding-left:22px; }}
+li {{ margin:2px 0; }}
+
+blockquote {{
+    border-left:3px solid {code_color};
+    margin:8px 0; padding:4px 12px;
+    color:{bq_color}; font-style:italic;
+    background:{bq_bg};
+    border-radius:0 6px 6px 0;
+}}
+
+code {{
+    font-family:"JetBrains Mono","Fira Code","Cascadia Code",monospace;
+    background:{code_bg}; border:1px solid {code_bdr};
+    border-radius:4px; padding:1px 5px;
+    font-size:12.5px; color:{code_color};
+}}
+
+.highlight {{
+    background:{pyg_bg}; border-radius:8px;
+    padding:12px 14px; margin:8px 0;
+}}
+.highlight pre {{
+    background:transparent; border:none;
+    padding:0; margin:0;
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    font-size:12.5px; line-height:1.55;
+    white-space:pre-wrap; word-wrap:break-word;
+}}
+.highlight pre code {{ background:none; border:none; padding:0; color:inherit; }}
+
+table {{ border-collapse:collapse; width:100%; margin:8px 0; }}
+th {{ background:{th_bg}; padding:6px 10px; color:{th_color};
+     text-align:left; border-bottom:2px solid {code_bdr}; }}
+td {{ padding:6px 10px; border-bottom:1px solid {td_border}; }}
+tr:hover td {{ background:{tr_hover}; }}
+
+hr {{ border:none; border-top:1px solid {hr_color}; margin:10px 0; }}
+
+{pyg_css}
+
+{latex_css}
+"""
+    _html_css_cache[dark] = css
+    return css
+
+
+# ── Coloration syntaxique ─────────────────────────────────────────────────────
+
+def _highlight_code_blocks(text: str) -> str:
+    if not _HAS_PYGMENTS:
+        return text
+
+    def replace(match):
+        lang = match.group(1) or ""
+        code = match.group(2)
+        try:
+            lexer = get_lexer_by_name(lang, stripall=True) if lang else TextLexer()
+        except Exception:
+            lexer = TextLexer()
+        style = "one-dark" if ThemeManager.is_dark() else "friendly"
+        fmt   = HtmlFormatter(style=style, nowrap=False, cssclass="highlight")
+        return highlight(code, lexer, fmt)
+
+    return re.sub(r'```(\w+)?\n(.*?)```', replace, text, flags=re.DOTALL)
+
+
+# ── HTML complet ──────────────────────────────────────────────────────────────
+
+def _md_to_html(text: str) -> str:
+    # 1. Extraire les blocs LaTeX AVANT que Markdown ne les abîme
+    protected, latex_cache = protect_latex(text)
+
+    # 2. Coloration syntaxique des blocs de code
+    if _HAS_PYGMENTS:
+        protected = _highlight_code_blocks(protected)
+
+    # 3. Rendu Markdown
+    if _HAS_MD:
+        body = md_lib.markdown(protected, extensions=["tables", "nl2br", "sane_lists"])
+    else:
+        body = html.escape(protected).replace("\n", "<br>")
+
+    # 4. Réinjecter les blocs LaTeX dans le HTML
+    body = restore_latex(body, latex_cache)
+
+    css      = _build_html_css()
+    katex    = katex_html_tags() if latex_available() else ""
+
+    return f"""<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<style>{css}</style>
+{katex}
+<script>
+function getContentHeight() {{
+    return document.body ? document.body.scrollHeight : 0;
+}}
+</script>
+</head><body>{body}</body></html>"""
+
+
+# ── Estimation de hauteur hors-ligne ─────────────────────────────────────────
+
+_IMAGE_HEIGHT_ESTIMATE = 420  # hauteur forfaitaire par image (px)
+# Correspond à une image matplotlib typique 6×4 pouces à 96 dpi
+# affichée dans une bulle de 920px de large.
+
+_RE_IMAGE_TAG = re.compile(
+    r'!\[.*?\]\(.*?\)'           # Markdown : ![alt](src)
+    r'|<img\b[^>]*>',            # HTML : <img ...>
+    re.IGNORECASE,
+)
+
+
+def _estimate_height(text: str) -> int:
+    """
+    Estime la hauteur en pixels d'un message sans interroger le renderer.
+
+    Toujours bornée par MessageWidget._MAX_H pour ne jamais dépasser
+    la limite de texture GPU (32 768px sur la plupart des pilotes).
+
+    Les images (balises Markdown ![...](...) ou HTML <img>) sont
+    détectées et comptabilisées séparément avec une hauteur forfaitaire,
+    car le base64 qu'elles contiennent fausserait massivement le calcul
+    basé sur le nombre de caractères.
+
+    Parameters
+    ----------
+    text : str
+        Contenu textuel brut du message (Markdown ou HTML).
+
+    Returns
+    -------
+    int
+        Hauteur estimée dans [MessageWidget._MIN_H, MessageWidget._MAX_H].
+    """
+    if not text:
+        return MessageWidget._MIN_H
+
+    # ── Compter et extraire les images ────────────────────────────────
+    image_count = len(_RE_IMAGE_TAG.findall(text))
+    text_without_images = _RE_IMAGE_TAG.sub("", text)
+
+    # ── Hauteur du texte ──────────────────────────────────────────────
+    # Les longues chaînes base64 dans data-URI gonflent artificiellement
+    # le comptage : on tronque chaque ligne à 400 chars pour les ignorer.
+    lines = text_without_images.split("\n")
+    total_lines = sum(
+        max(1, (min(len(line), 400) + _CHARS_PER_LINE - 1) // _CHARS_PER_LINE)
+        for line in lines
+    )
+    text_height = total_lines * _PX_PER_LINE + _DETACHED_PADDING
+
+    # ── Hauteur totale ────────────────────────────────────────────────
+    raw = text_height + image_count * _IMAGE_HEIGHT_ESTIMATE
+    return max(MessageWidget._MIN_H, min(raw, MessageWidget._MAX_H))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MessageWidget
+# ══════════════════════════════════════════════════════════════════════════════
+
+class MessageWidget(QWidget):
+    """
+    Bulle de message user/assistant avec rendu WebEngine.
+
+    États internes
+    ──────────────
+    _attached : bool
+        True  → QWebEngineView actif (renderer Chromium en vie).
+        False → WebView en état Discarded, layout stabilisé par _cached_height.
+
+    _streaming : bool
+        True entre start_streaming() et end_streaming().
+        Un widget en streaming ne peut pas être détaché.
+
+    _cached_height : int
+        Dernière hauteur connue du contenu (pixels). Maintenu à jour après
+        chaque interrogation JS réussie et après chaque estimation.
+        Sert à stabiliser le layout quand le renderer est suspendu.
+
+    _dirty : bool
+        True si set_content() a été appelé en état détaché.
+        Déclenche un re-render complet au prochain attach().
+    """
+
+    _MIN_H = 40
+    _MAX_H = 16000  # Limite de sécurité pour éviter les crashes GPU
+
+    def __init__(self, role: str, content: str = "", parent=None):
+        super().__init__(parent)
+        self.role = role
+        self._full_text    = content
+        self._attached     = True   # démarre toujours attaché
+        self._streaming    = False
+        self._pending_tokens   = ""
+        self._cached_height    = self._MIN_H
+        self._dirty        = False  # re-render requis au prochain attach ?
+
+        # Timer de throttle streaming : flush toutes les 150ms pour ne pas
+        # saturer le moteur WebEngine avec un token par runJavaScript().
+        self._stream_timer = QTimer(self)
+        self._stream_timer.setInterval(150)
+        self._stream_timer.timeout.connect(self._flush_tokens)
+
+        self._setup_ui()
+        if content:
+            self.set_content(content)
+
+    # ── Construction de l'interface utilisateur ─────────────────────────────────
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 4, 0, 4)
+        root.setSpacing(0)
+
+        bubble = QWidget()
+        bubble.setObjectName("msg_user" if self.role == "user" else "msg_assistant")
+        bl = QVBoxLayout(bubble)
+        bl.setContentsMargins(16, 10, 16, 10)
+        bl.setSpacing(5)
+
+        # Header
+        header = QHBoxLayout()
+        role_lbl = QLabel(Config.APP_USER if self.role == "user" else Config.APP_TITLE)
+        role_lbl.setObjectName(
+            "msg_role_user" if self.role == "user" else "msg_role_assistant"
+        )
+        header.addWidget(role_lbl)
+        header.addStretch()
+
+        self._copy_btn = QPushButton("📋")
+        self._copy_btn.setObjectName("tool_btn")
+        self._copy_btn.setFixedSize(32, 32)
+        self._copy_btn.setToolTip("Copier")
+        self._copy_btn.clicked.connect(self._copy)
+        self._copy_btn.setVisible(False)
+        header.addWidget(self._copy_btn)
+        bl.addLayout(header)
+
+        # QWebEngineView
+        self._view = QWebEngineView()
+        self._view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._view.setFixedHeight(self._MIN_H)
+
+        self._view.page().setBackgroundColor(Qt.GlobalColor.transparent)
+
+        s = self._view.settings()
+        s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+        s.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, False)
+
+        self._view.loadFinished.connect(self._on_load_finished)
+
+        bl.addWidget(self._view)
+
+        outer = QHBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        if self.role == "user":
+            outer.addStretch()
+            bubble.setMaximumWidth(680)
+        else:
+            bubble.setMaximumWidth(920)
+        outer.addWidget(bubble)
+        root.addLayout(outer)
+        self.bubble = bubble
+
+    # ── Virtualisation viewport ───────────────────────────────────────
+
+    @property
+    def is_attached(self) -> bool:
+        """True si le renderer WebEngine est actif."""
+        return self._attached
+
+    def detach(self):
+        """
+        Suspend le renderer WebEngine pour économiser la mémoire.
+
+        Conditions de sécurité :
+        - Sans effet si le widget est en cours de streaming.
+        - Sans effet si déjà détaché.
+        - La hauteur Qt est figée à _cached_height AVANT masquage pour
+          éviter tout saut de layout dans le QScrollArea parent.
+
+        Après detach(), _full_text reste intact : attach() effectuera
+        un re-render complet si _dirty est True (contenu modifié pendant
+        la suspension), ou restaurera simplement le renderer sinon.
+        """
+        if self._streaming or not self._attached or not self._view:
+            return
+
+        self._attached = False
+
+        # Figer la hauteur avant de masquer la vue (évite le collapse à 0).
+        h = max(self._MIN_H, min(self._cached_height, self._MAX_H))
+        self._view.setMinimumHeight(h)
+        self._view.setMaximumHeight(h)
+
+        # Masquer d'abord, puis passer en Discarded via un singleShot(0).
+        # Cela évite d'appeler processEvents() — qui causait une réentrance
+        # dans _sync() et laissait Chromium avec une texture GPU incohérente
+        # ("Compositor returned null texture").
+        # Le singleShot(0) garantit que la visibilité est propagée au renderer
+        # avant la transition d'état, sans traiter d'autres événements en cours.
+        self._view.setVisible(False)
+
+        try:
+            page = self._view.page()
+            QTimer.singleShot(0, lambda: self._discard_page(page))
+        except AttributeError:
+            pass
+
+    def _discard_page(self, page):
+        """Passe la page en état Discarded après que la visibilité a été propagée."""
+        # Vérifier que le widget n'a pas été réattaché ou détruit entre-temps.
+        if self._attached or not self._view:
+            return
+        try:
+            page.setLifecycleState(QWebEnginePage.LifecycleState.Discarded)
+        except AttributeError:
+            # Qt < 6.2 : setLifecycleState absent — vider la page suffit
+            page.setHtml("")
+            self._dirty = True
+        except RuntimeError:
+            pass  # page déjà détruite
+
+    def attach(self):
+        """
+        Réactive le renderer WebEngine et re-rend si le contenu a changé.
+
+        Conditions de sécurité :
+        - Sans effet si déjà attaché.
+
+        Si _dirty est False (contenu inchangé depuis le dernier rendu),
+        on réactive simplement le renderer sans recharger la page —
+        ce qui est le cas nominal pour un simple scroll aller-retour.
+
+        Si _dirty est True (set_content() appelé pendant la suspension),
+        on effectue un re-render HTML complet.
+        """
+        if self._attached or not self._view:
+            return
+
+        self._attached = True
+        self._view.setVisible(True)
+
+        # Différer setLifecycleState(Active) d'un cycle d'événements pour
+        # laisser Qt peindre le widget avant que Chromium alloue la texture GPU.
+        # Sans ce délai, le compositor peut recevoir une demande de rendu sur
+        # un widget encore invisible, produisant "Compositor returned null texture".
+        if self._dirty:
+            self._dirty = False
+            content = self._full_text
+            if content:
+                QTimer.singleShot(0, lambda: self._activate_and_render(content))
+            else:
+                QTimer.singleShot(0, self._activate_page)
+                self._view.setMinimumHeight(self._MIN_H)
+                self._view.setMaximumHeight(self._MIN_H)
+        else:
+            QTimer.singleShot(0, self._activate_page)
+
+    def _activate_page(self):
+        """Passe la page en état Active après un cycle d'événements."""
+        if not self._attached or not self._view:
+            return
+        try:
+            self._view.page().setLifecycleState(QWebEnginePage.LifecycleState.Active)
+        except (AttributeError, RuntimeError):
+            pass
+
+    def _activate_and_render(self, content: str):
+        """Active la page puis re-rend le contenu (cas _dirty)."""
+        if not self._attached or not self._view:
+            return
+        try:
+            self._view.page().setLifecycleState(QWebEnginePage.LifecycleState.Active)
+        except (AttributeError, RuntimeError):
+            pass
+        self.set_content(content)
+
+    # ── Contenu ───────────────────────────────────────────────────────
+
+    def set_content(self, text: str):
+        """
+        Définit ou met à jour le contenu du widget.
+
+        En état DÉTACHÉ : met à jour _full_text, estime la hauteur pour
+        stabiliser le layout, et marque _dirty=True. Le rendu HTML sera
+        effectué au prochain attach().
+
+        En état ATTACHÉ : charge le HTML complet dans le WebView.
+
+        Parameters
+        ----------
+        text : str
+            Texte Markdown brut du message.
+        """
+        self._full_text = text
+        self._copy_btn.setVisible(bool(text))
+
+        if not self._attached:
+            # Mettre à jour la hauteur estimée pour éviter les sauts de layout
+            h = _estimate_height(text)
+            self._cached_height = h
+            self._view.setMinimumHeight(h)
+            self._view.setMaximumHeight(h)
+            self._dirty = True
+            return
+
+        if not self._view:
+            return
+
+        try:
+            from PyQt6.QtCore import QUrl
+            from .latex_renderer import _ASSETS_DIR as _KATEX_DIR
+            base_url = QUrl.fromLocalFile(str(_KATEX_DIR) + "/")
+            self._view.page().setHtml(_md_to_html(text), base_url)
+        except (RuntimeError, AttributeError):
+            pass
+
+    # ── Streaming ─────────────────────────────────────────────────────
+
+    def start_streaming(self):
+        """
+        Passe en mode streaming.
+
+        La page HTML est chargée une fois avec le contenu initial,
+        puis les tokens sont injectés via JS sans rechargement.
+        Le widget est réattaché si nécessaire (ne doit pas arriver en
+        pratique — ViewportManager ne détache pas les widgets en streaming).
+        """
+        self._streaming = True
+        self._pending_tokens = ""
+        if not self._attached:
+            self.attach()
+        if not self._full_text:
+            self.set_content("")
+        self._stream_timer.start()
+
+    def append_token(self, token: str):
+        """
+        Ajoute un token pendant le streaming.
+
+        En streaming : accumule dans _pending_tokens (flush toutes les 150ms).
+        Hors streaming : appelle set_content() directement.
+        """
+        self._full_text += token
+        if self._streaming:
+            self._pending_tokens += token
+        else:
+            self.set_content(self._full_text)
+
+    def _flush_tokens(self):
+        """Injecte les tokens accumulés dans la WebView via JS."""
+        if not self._pending_tokens or not self._view:
+            return
+
+        escaped = (
+            self._pending_tokens
+            .replace("\\", "\\\\")
+            .replace("`", "\\`")
+            .replace("${", "\\${")
+        )
+        self._pending_tokens = ""
+
+        try:
+            self._view.page().runJavaScript(
+                f"document.body.insertAdjacentText('beforeend', `{escaped}`);"
+            )
+            self._query_height()
+        except (RuntimeError, AttributeError):
+            pass
+
+    def end_streaming(self):
+        """
+        Termine le mode streaming et effectue le rendu Markdown complet.
+
+        Arrête le timer, flush les tokens restants, puis recharge la page
+        avec le rendu Markdown/Pygments définitif.
+        """
+        self._stream_timer.stop()
+        self._pending_tokens = ""
+        self._streaming = False
+        self.set_content(self._full_text)
+
+    def refresh_theme(self):
+        """Recharge le contenu avec le thème actif."""
+        if self._full_text:
+            if self._attached:
+                self.set_content(self._full_text)
+            else:
+                self._dirty = True  # re-render au prochain attach()
+
+    # ── Hauteur dynamique ─────────────────────────────────────────────
+
+    def _query_height(self):
+        """Interroge la hauteur du contenu via JS et applique le résultat."""
+        if not self._view or not self._attached:
+            return
+        try:
+            self._view.page().runJavaScript(
+                "getContentHeight();",
+                self._apply_height,
+            )
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _on_load_finished(self, ok: bool):
+        """
+        Interroge la hauteur dès que la page est chargée.
+
+        Deux passes sont effectuées :
+        - Immédiate (0 ms)  : capture la hauteur du texte/HTML.
+        - Différée  (350 ms): capture la hauteur réelle après décodage
+          des images base64 (matplotlib, etc.) dont la taille n'est pas
+          connue du renderer au moment du premier loadFinished.
+        """
+        if ok:
+            self._query_height()
+            # Les images data-URI sont décodées de façon asynchrone après
+            # loadFinished. Sans ce second appel, _cached_height ne reflète
+            # pas la hauteur finale et le layout saute au re-scroll.
+            QTimer.singleShot(350, self._query_height)
+
+    def _apply_height(self, h):
+        if not self._view or not self._attached:
+            return
+        try:
+            height = int(h) if h else 0
+            if height <= self._MIN_H:
+                return
+
+            # Borner avant de mémoriser : _cached_height est réutilisé dans
+            # detach() pour figer la hauteur du widget — il ne doit jamais
+            # dépasser _MAX_H, sinon Qt transmet la valeur brute au renderer
+            # 3D et déclenche "Requested backing texture size is NxM" > 32 768.
+            clamped = min(height, self._MAX_H)
+            self._cached_height = clamped
+
+            self._view.setMinimumHeight(clamped + (0 if height > self._MAX_H else 4))
+            self._view.setMaximumHeight(clamped + (0 if height > self._MAX_H else 4))
+
+            self.updateGeometry()
+        except (RuntimeError, AttributeError, ValueError):
+            pass
+
+    # ── Copie ─────────────────────────────────────────────────────────
+
+    def _copy(self):
+        QGuiApplication.clipboard().setText(self._full_text)
+        self._copy_btn.setText("✓")
+        QTimer.singleShot(1500, lambda: self._copy_btn.setText("⎘"))
+
+    # ── Nettoyage ─────────────────────────────────────────────────────
+
+    def cleanup(self):
+        """Nettoie proprement le QWebEngineView avant destruction."""
+        self._stream_timer.stop()
+        self._pending_tokens = ""
+        self._streaming = False
+        self._attached  = False
+
+        if self._view:
+            try:
+                self._view.loadFinished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            self._view.stop()
+            self._view.setHtml("")
+            if self._view.page():
+                self._view.page().deleteLater()
+            self._view = None
+
+    def __del__(self):
+        try:
+            self.cleanup()
+        except (RuntimeError, AttributeError):
+            pass
