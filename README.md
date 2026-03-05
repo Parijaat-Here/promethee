@@ -20,7 +20,7 @@
 
 ### Prérequis
 
-- Python **3.10+**
+- Python **3.10+ (testé avec 3.12.8)**
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) *(optionnel, pour l'OCR)*
 
 ```bash
