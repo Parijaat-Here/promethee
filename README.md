@@ -1,4 +1,4 @@
-# 🔥 Prométhée AI v2.1
+# 🔥 Prométhée AI v2.2
 
 **Assistant IA desktop** — Interface PyQt6 connectée à un LLM (OpenAI-compatible, Albert API ou Ollama), avec outils intégrés, RAG, mémoire long terme et support Légifrance/Judilibre.
 **conçu principalement pour fonctionner avec l'API Albert de la DiNum**
